@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#10131e">
+  <meta name="color-scheme" content="dark light">
+  <meta name="application-name" content="HostPanel">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="apple-touch-icon" href="/assets/favicon.svg">
+  <title>HostPanel 0.8 · Server Workspace</title>
+  <link rel="preload" href="https://cdn.jsdelivr.net/gh/romkatv/powerlevel10k-media@master/MesloLGS%20NF%20Regular.ttf" as="font" type="font/ttf" crossorigin="anonymous">
+  <link rel="preload" href="https://cdn.jsdelivr.net/gh/romkatv/powerlevel10k-media@master/MesloLGS%20NF%20Bold.ttf" as="font" type="font/ttf" crossorigin="anonymous">
+  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js"></script>
+  <script defer src="/assets/app.js"></script>
+</head>
+<body>
+  <div id="login" class="auth-view">
+    <div class="auth-orb orb-one"></div><div class="auth-orb orb-two"></div>
+    <form id="loginForm" class="auth-card">
+      <div class="brand-lockup"><span class="brand-mark">H</span><span>HOSTPANEL<small>SERVER WORKSPACE</small></span></div>
+      <div class="auth-kicker">PRIVATE CONTROL PLANE</div>
+      <h1>Welcome back.</h1>
+      <p>Sign in with your HostPanel administrator password.</p>
+      <label for="password">Administrator password</label>
+      <div class="password-wrap"><input id="password" type="password" placeholder="Enter your password" autocomplete="current-password" required><span class="lock-glyph">⌑</span></div>
+      <label class="remember-row"><input id="rememberLogin" type="checkbox" checked><span>Keep me signed in for 30 days on this device</span></label>
+      <button class="primary-button auth-submit" type="submit"><span>Sign in securely</span><span>↗</span></button>
+      <small id="loginError" class="form-error" role="alert"></small>
+      <div class="auth-foot"><span class="pulse-dot"></span> Password stored as a salted hash · HTTPS/VPN for remote access</div>
+    </form>
+  </div>
+
+  <div id="app" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand-lockup compact"><span class="brand-mark">H</span><span>HOSTPANEL<small>SERVER WORKSPACE</small></span></div>
+      <div class="topbar-center"><span class="connection-dot"></span><span id="host">Connecting to host…</span><span class="top-separator">/</span><span id="serverAddress" class="muted">—</span></div>
+      <div class="top-actions">
+        <button class="icon-button" id="themeQuick" title="Toggle theme" aria-label="Toggle theme">◐</button>
+        <button class="icon-button" id="settingsOpen" title="Settings" aria-label="Settings">⚙</button>
+        <button class="disconnect-button" id="logout">Disconnect <span>↗</span></button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="app-sidebar">
+        <div class="sidebar-caption">WORKSPACE</div>
+        <nav class="main-nav" aria-label="Main navigation">
+          <button class="nav-item active" data-tab="overview"><span class="nav-icon">◫</span><span>Overview</span></button>
+          <button class="nav-item" data-tab="services"><span class="nav-icon">◈</span><span>Services</span></button>
+          <button class="nav-item" data-tab="files"><span class="nav-icon">▤</span><span>File manager</span><span class="nav-pill">NEW</span></button>
+          <button class="nav-item" data-tab="terminal"><span class="nav-icon">⌘</span><span>Terminal</span></button>
+          <button class="nav-item" data-tab="media"><span class="nav-icon">♫</span><span>Media studio</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="host-mini-card"><span class="mini-avatar">⌂</span><div><b id="miniUser">—</b><small id="miniOS">Host account</small></div><span class="online-mark"></span></div>
+          <div class="sidebar-secure"><span>◆</span> Session protected</div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <section id="overview" class="tab-page">
+          <div class="page-intro"><div><div class="eyebrow">SYSTEM / LIVE TELEMETRY</div><h1>Good to see you.</h1><p>Your server at a glance. Metrics refresh continuously.</p></div><div class="live-badge"><i></i> LIVE</div></div>
+          <div class="metric-grid">
+            <article class="metric-card metric-cpu"><div class="metric-top"><span class="metric-icon">◉</span><span class="metric-label">PROCESSOR</span><span class="metric-live">●</span></div><div class="metric-value" id="cpu">—</div><div class="metric-bar"><i id="cpuBar"></i></div><div class="metric-foot"><span>CPU utilization</span><b id="cpuMeta">—</b></div><div class="metric-watermark">CPU</div></article>
+            <article class="metric-card metric-ram"><div class="metric-top"><span class="metric-icon">▦</span><span class="metric-label">MEMORY</span><span class="metric-live">●</span></div><div class="metric-value" id="ram">—</div><div class="metric-bar"><i id="ramBar"></i></div><div class="metric-foot"><span>Memory in use</span><b id="ramMeta">—</b></div><div class="metric-watermark">RAM</div></article>
+            <article class="metric-card metric-disk"><div class="metric-top"><span class="metric-icon">▤</span><span class="metric-label">HOME STORAGE</span><span class="metric-live">●</span></div><div class="metric-value" id="disk">—</div><div class="metric-bar"><i id="diskBar"></i></div><div class="metric-foot"><span>Home volume</span><b id="diskMeta">—</b></div><div class="metric-watermark">SSD</div></article>
+            <article class="metric-card metric-network"><div class="metric-top"><span class="metric-icon">⌁</span><span class="metric-label">NETWORK I/O</span><span class="metric-live">●</span></div><div class="metric-value network-value" id="network">—</div><div class="network-split"><span><b id="netDown">↓ —</b><small>Received</small></span><span><b id="netUp">↑ —</b><small>Sent</small></span></div><div class="metric-watermark">NET</div></article>
+          </div>
+          <div class="overview-grid">
+            <article class="surface-card host-card"><div class="surface-heading"><div><span class="eyebrow">YOUR MACHINE</span><h2>Host identity</h2></div><span class="surface-icon">⌂</span></div><div class="host-identity"><div class="host-avatar">⌘</div><div><b id="hostNameLarge">—</b><small id="hostSub">—</small></div><span class="status-chip"><i></i> Online</span></div><div id="info" class="detail-grid"></div></article>
+            <article class="surface-card resource-card"><div class="surface-heading"><div><span class="eyebrow">RESOURCE ALLOCATION</span><h2>Memory & activity</h2></div><span class="surface-icon">⌁</span></div><div class="resource-summary"><div><strong id="memoryUsed">—</strong><small>RAM currently used</small></div><div><strong id="swapUsed">—</strong><small>Swap utilization</small></div></div><canvas id="chart" height="130"></canvas><div class="chart-legend"><span><i></i> CPU load · last 50 samples</span><b id="uptimeSummary">—</b></div></article>
+          </div>
+          <article class="surface-card mounted-summary"><div class="surface-heading"><div><span class="eyebrow">STORAGE TOPOLOGY</span><h2>Mounted volumes</h2></div><button class="text-action" data-goto="files">Open file manager ↗</button></div><div id="volumeSummary" class="volume-summary-grid"></div></article>
+        </section>
+
+        <section id="services" class="tab-page" hidden>
+          <div class="page-intro"><div><div class="eyebrow">SYSTEM / PROCESS SUPERVISION</div><h1>Background services</h1><p>Read-only inventory from the native service manager.</p></div><button id="refreshServices" class="soft-button">↻ &nbsp; Refresh services</button></div>
+          <article class="surface-card service-card"><div class="service-toolbar"><div class="service-count"><span class="pulse-dot"></span><b id="serviceCount">0 services</b><small>Detected on this host</small></div><input id="serviceSearch" class="search-field" placeholder="⌕  Filter services by name…"></div><div class="table-scroll"><table><thead><tr><th>SERVICE</th><th>STATE</th><th>DESCRIPTION</th></tr></thead><tbody id="serviceRows"><tr><td colspan="3" class="empty-table">Loading service inventory…</td></tr></tbody></table></div></article>
+        </section>
+
+        <section id="files" class="tab-page file-page" hidden>
+          <div class="page-intro files-intro"><div><div class="eyebrow">STORAGE / EXPLORER</div><h1>File manager</h1><p id="fileScopeText">Your home folder and mounted volumes, within your OS permissions.</p></div><div class="fm-intro-actions"><span class="secure-chip">⌑ Scoped access</span><span class="items-live"><i></i> LIVE STORAGE</span></div></div>
+          <article class="file-explorer">
+            <aside class="fm-sidebar">
+              <div class="fm-sidebar-head"><span>PLACES</span><button id="refreshVolumes" title="Refresh drives">↻</button></div>
+              <div id="locationList" class="fm-place-list"></div>
+              <div class="fm-sidebar-head drive-head"><span>DEVICES & VOLUMES</span><span id="driveCount" class="count-badge">0</span></div>
+              <div id="driveList" class="drive-list"><div class="fm-loading">Detecting devices…</div></div>
+              <div class="fm-sidebar-note"><span class="lock-small">⌑</span><span>Only your home folder and genuine mounted data volumes are shown. Virtual package mounts are hidden; system root stays restricted.</span></div>
+            </aside>
+            <div class="fm-main">
+              <div class="fm-toolbar">
+                <div class="fm-nav-controls"><button id="fileBack" class="fm-tool-button" title="Back">←</button><button id="upFiles" class="fm-tool-button" title="Up one folder">↑</button><button id="refreshFiles" class="fm-tool-button" title="Refresh">↻</button></div>
+                <div class="fm-address"><span class="address-lock">⌑</span><span id="fileBreadcrumbs">Home</span><input id="filePath" aria-label="Current path" hidden><button id="editPath" title="Edit path">⌄</button></div>
+                <div class="fm-search-wrap"><span>⌕</span><input id="fileSearch" placeholder="Search this folder…"></div>
+                <div class="view-toggle"><button id="gridView" class="selected" title="Grid view">▦</button><button id="listView" title="List view">☷</button></div>
+              </div>
+              <div class="fm-actionbar"><div class="fm-action-buttons"><button id="newFolder" class="soft-button">＋ New folder</button><button id="newFile" class="soft-button">＋ New file</button><button id="uploadButton" class="soft-button">↑ Upload</button><button id="toggleHidden" class="soft-button">· Hidden</button><button id="fileActions" class="soft-button" disabled>More ···</button><input id="uploadInput" type="file" multiple hidden></div><div class="fm-action-tools"><label class="sort-control"><span>Sort</span><select id="fileSort" aria-label="Sort files"><option value="name">Name</option><option value="kind">Type</option><option value="size">Size</option><option value="modified">Modified</option></select></label><button id="sortDirection" class="fm-tool-button" title="Toggle sort direction" aria-label="Toggle sort direction">↑</button><span class="fm-selection-label" id="fileStatus">Loading…</span></div></div>
+              <div id="dropZone" class="fm-drop-zone"><div id="fileRows" class="fm-file-grid"><div class="fm-loading">Opening home folder…</div></div><div id="dropHint" class="drop-hint" hidden><span>↑</span><b>Drop files to upload</b><small>Files will be added to this folder</small></div></div>
+              <div class="fm-footer"><span id="fileStatusFoot">Home</span><span id="filePermissions">Running as —</span><span class="shortcut-hint">Ctrl/⌘+A select · F2 rename · Shift+F10 menu</span></div>
+            </div>
+          </article>
+          <div id="contextMenu" class="context-menu" role="menu" aria-label="File actions" hidden></div>
+        </section>
+
+        <section id="terminal" class="tab-page" hidden>
+          <div class="page-intro"><div><div class="eyebrow">SYSTEM / INTERACTIVE SHELL</div><h1>Terminal</h1><p id="terminalCaption">Interactive login shell · loads your zsh/bash/fish startup files and prompt theme.</p></div><div class="terminal-controls"><select id="shell" class="shell-select" aria-label="Shell"></select><button id="restartTerminal" class="soft-button">↻ Restart</button></div></div>
+          <article class="terminal-window"><div class="terminal-titlebar"><div class="window-lights"><i></i><i></i><i></i></div><div class="terminal-title"><span id="terminalShellName">Terminal</span><span class="terminal-separator">·</span><span id="terminalUser">—</span></div><div class="terminal-window-actions"><span id="terminalFontStatus" class="terminal-font-status">MESLO NF · READY</span><span id="terminalState" class="terminal-state">DISCONNECTED</span><button id="clearTerminal" title="Clear terminal">⌫</button></div></div><div id="terminalHost" class="terminal-host"></div><div id="terminalMissing" class="terminal-missing" hidden>Terminal emulator could not load. Connect this browser to the internet and reload to load the xterm.js assets.</div><div class="terminal-foot"><span><i class="pulse-dot"></i> PTY SESSION</span><span>Ctrl+C · Ctrl+D · Tab completion · resize aware</span></div></article>
+          <div class="security-callout"><span>⌑</span><div><b>OS permission boundary</b><p>Commands run as <strong id="terminalAccount">the HostPanel process user</strong>. Use <code>sudo</code> normally; its password prompt is handled by the TTY and is not stored by HostPanel. Never run this server as root.</p></div></div>
+        </section>
+
+        <section id="media" class="tab-page" hidden>
+          <div class="page-intro"><div><div class="eyebrow">LIBRARY / PLAYBACK & PREVIEW</div><h1>Media studio</h1><p>Browse and stream supported media from home or mounted volumes.</p></div><span class="secure-chip">⌑ Private media</span></div>
+          <div class="media-layout"><article class="surface-card media-browser-card"><div class="media-browser-toolbar"><button id="mediaUp" class="fm-tool-button">↑</button><input id="mediaPath" class="search-field" value="~" aria-label="Media folder path"><button id="mediaGo" class="soft-button">Browse</button></div><div id="mediaRows" class="media-list"><div class="fm-loading">Loading media library…</div></div></article><article class="surface-card media-player-card"><div class="surface-heading"><div><span class="eyebrow">NOW VIEWING</span><h2 id="playerTitle">Media preview</h2></div><span class="surface-icon">♫</span></div><div id="mediaStage" class="media-stage"><div class="media-placeholder"><span>◉</span><b>Your media, beautifully presented.</b><small>Select an image, audio track or video to preview it here.</small></div></div><audio id="audioPlayer" controls hidden></audio><video id="videoPlayer" controls playsinline controlslist="nodownload" hidden></video><div class="media-capabilities"><span>Images</span><span>Audio</span><span>Video</span><span>Range streaming</span></div></article></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="settings" class="settings-backdrop" hidden>
+    <aside class="settings-panel"><div class="settings-heading"><div><div class="eyebrow">PREFERENCES</div><h2>Workspace settings</h2></div><button class="icon-button" id="settingsClose" aria-label="Close settings">×</button></div>
+      <div class="settings-section"><h3>Appearance</h3><label class="setting-label" for="themeSelect">Color scheme</label><select id="themeSelect" class="settings-select"><option value="system">Follow device</option><option value="dark">Dark mode</option><option value="light">Light mode</option></select><div class="setting-hint">Neumorphic surfaces and the dual-tone animated rim adapt to your selected theme.</div><label class="setting-label" for="densitySelect" style="margin-top:16px">Interface density</label><select id="densitySelect" class="settings-select"><option value="comfortable">Comfortable</option><option value="compact">Compact</option><option value="roomy">Roomy</option></select><div class="setting-hint">Automatically adapts to your screen and panel width; density changes spacing without distorting the interface.</div><div class="setting-row"><div><b>Motion effects</b><small>Animated edge lighting and transitions</small></div><label class="switch"><input type="checkbox" id="motionToggle" checked><span></span></label></div></div>
+      <div class="settings-section"><h3>Security & access</h3><div class="setting-info"><span>AUTHENTICATION</span><b>Password · salted PBKDF2 hash</b></div><div class="setting-info"><span>REMEMBERED SESSION</span><b>30 days · revocable by password change</b></div><div class="setting-info"><span>FILE SCOPE</span><b>Home + mounted data volumes</b></div><div class="setting-info"><span>TERMINAL IDENTITY</span><b id="settingsUser">—</b></div>
+        <form id="passwordChangeForm" class="password-change-form"><label for="currentPassword">Current password</label><input id="currentPassword" type="password" autocomplete="current-password" required><label for="newPassword">New password</label><input id="newPassword" type="password" autocomplete="new-password" minlength="12" required><small>Use at least 12 characters. Your password is never stored in plaintext.</small><button class="soft-button" type="submit">Update administrator password</button><div id="passwordChangeMessage" class="form-error" role="status"></div></form>
+        <p class="security-note">For access from anywhere, use a private VPN such as Tailscale. Do not expose the HostPanel port or use plain HTTP over the public internet.</p></div>
+      <div class="settings-section"><h3>About this host</h3><div class="setting-info"><span>HOSTNAME</span><b id="settingsHost">—</b></div><div class="setting-info"><span>PLATFORM</span><b id="settingsOS">—</b></div><div class="setting-info"><span>VERSION</span><b>HostPanel 0.8</b></div></div>
+      <button id="settingsDone" class="primary-button settings-done">Done</button>
+    </aside>
+  </div>
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+</body>
+</html>

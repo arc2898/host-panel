@@ -1,276 +1,95 @@
-# Self-Hosted Server Dashboard
+# HostPanel 0.8
 
-A private server control panel: real-time system monitor, full file manager,
-media center, and a browser-based terminal — behind authentication, meant to
-be reached over your Tailscale network.
+A cross-platform self-hosted server workspace: live hardware metrics, background-service inventory, a Finder/Deepin-inspired file manager, mounted-volume discovery, an interactive OS terminal, and a private media library.
 
-## 1. Architecture
+## Start in the foreground
 
-**Stack:** Node.js/Express (backend) + vanilla HTML/CSS/JS (frontend, no build
-step). Chosen so it runs identically on Windows (dev/test) and Linux
-(deployment) with zero compiled frontend tooling — `npm install && npm start`
-is the whole workflow on either OS.
+- Linux: `chmod +x start.sh && ./start.sh`
+- macOS: `chmod +x start.command && ./start.command`
+- Windows: double-click `start.bat`
 
-```
-selfhost-dashboard/
-├── server/
-│   ├── index.js              Express app, HTTP server, WS upgrade routing
-│   ├── config.js             Loads .env, resolves FILE_ROOT/MEDIA_DIRS
-│   ├── setup.js              One-time CLI to create the first admin user
-│   ├── middleware/
-│   │   ├── auth.js           requireAuth / requireAdmin / WS cookie auth
-│   │   ├── security.js       safeResolve() — the path-traversal firewall
-│   │   └── errorHandler.js   Converts internal errors to safe messages
-│   ├── routes/
-│   │   ├── auth.js           /api/auth/*
-│   │   ├── system.js         /api/system/*
-│   │   ├── files.js          /api/files/*
-│   │   └── media.js          /api/media/*
-│   ├── services/
-│   │   ├── authService.js    User store (data/users.json), JWT, audit log
-│   │   ├── systemMonitor.js  Wraps `systeminformation` for CPU/mem/disk/net
-│   │   ├── fileService.js    All file CRUD, zip/unzip, safe path resolution
-│   │   └── terminalService.js Spawns real PTY shells via `node-pty`
-│   └── ws/
-│       ├── systemSocket.js   Broadcasts live stats every 2s to all clients
-│       └── terminalSocket.js Bridges an xterm.js session to a PTY
-├── public/                   Static frontend (served directly by Express)
-│   ├── index.html / login.html
-│   ├── css/style.css
-│   └── js/{app,dashboard,monitor,files,media,terminal}.js
-└── data/                     Created at runtime: users.json, audit.log, files/
-```
+Python 3.10+ is required. The launcher creates `.venv` and installs dependencies. On Debian/Ubuntu, install `python3-venv` if needed.
 
-**Why this split:** every filesystem and process action funnels through
-`fileService.js` / `systemMonitor.js`, which are the only modules that touch
-the OS. Routes stay thin (validate → call service → respond), so the security
-boundary (path traversal, auth) lives in exactly one place
-(`middleware/security.js` and `middleware/auth.js`) instead of being
-re-implemented per route.
+## Permanent administrator password
 
-### Authentication & security model
-- Username/password, `bcryptjs`-hashed, stored in `data/users.json` (created
-  by `npm run setup` — nothing ships with a default password).
-- Session = JWT in an `httpOnly`, `SameSite=Lax` cookie. No token ever
-  touches `localStorage` or client JS.
-- WebSocket upgrades require the session cookie and reject browser `Origin` headers that do not match the request host. WebSocket payloads are bounded; terminal sessions and input rates are limited.
-- `express-rate-limit` on `/api/auth/login` (10 attempts / 15 min) and on the
-  whole `/api` surface (300 req/min) as a blanket throttle.
-- `helmet` for standard security headers.
-- **Admin-only process termination:** the process-kill endpoint requires an admin claim and accepts only `SIGTERM`, `SIGINT`, or `SIGKILL`; it refuses PID 1 and the server's own PID.
-- **Archive extraction:** zip entry paths are validated before extraction, symbolic links are rejected, content is staged before merge, collisions are not overwritten, and compressed/expanded sizes are bounded.
-- **Uploads and streaming:** upload filenames are reduced to safe basenames, multipart counts and per-file size are limited, and byte-range headers are validated before streaming.
-- **JWT secret:** server startup refuses the known default/template secret and requires at least 32 bytes. `start.sh` and `start.bat` generate a unique secret when creating a new `.env`.
-- **Path traversal:** `safeResolve()` resolves every user-supplied path
-  against `FILE_ROOT` and throws if the result would land outside it —
-  applied to every single file operation, including uploads, zip, and the
-  raw/stream endpoints used by the media player. There's no code path where a
-  browser-supplied path reaches `fs` without going through it first.
-- **Terminal:** runs as whatever OS user started the Node process — it is not
-  a separate unauthenticated shell service. There is no `sudo` elevation and
-  no root-required setup baked in; if you want the terminal to have broader
-  permissions, run the whole Node process as that user (with the risk that
-  implies).
-- **Audit log:** `data/audit.log` — append-only, one JSON line per login,
-  upload, delete, rename, process kill, terminal open/close, etc.
-- **2FA:** the user record already has a `twoFactorSecret` field reserved so
-  TOTP can be added later without a schema change; it is not wired up yet.
+HostPanel now creates a persistent administrator password on first run.
 
-### API reference (all under `/api`, all require the `session` cookie except `/auth/*`)
+- On an existing installation, the old `.admin-token` is migrated as the initial password, copied to a protected `initial-password.txt` in the private HostPanel data directory, and removed from the project folder so you can still retrieve it after the upgrade.
+- On a fresh install, a random initial password is stored in the same protected `initial-password.txt`. The launcher prints its path. Read it once, sign in, then change it in **Settings → Security & access**; changing the password deletes the temporary plaintext copy.
+- Your chosen password is persisted as a salted PBKDF2-HMAC-SHA256 hash (600,000 iterations), never as plaintext. Changing it invalidates existing signed-in sessions.
+- HostPanel keeps credentials and its session-signing key outside the project, so updating/replacing the project ZIP does not reset your login.
 
-| Method & Path | Purpose |
-|---|---|
-| `GET /auth/status` | Whether initial setup has been run |
-| `POST /auth/login` | `{username, password}` → sets session cookie |
-| `POST /auth/logout` | Clears session cookie |
-| `GET /auth/me` | Current user |
-| `GET /system/overview` | Full stats snapshot (also pushed via WS) |
-| `GET /system/network` | Per-interface network detail |
-| `GET /system/processes` | Live process table |
-| `POST /system/processes/:pid/kill` | `{signal?}`, terminates a process |
-| `GET /system/identity` | Hostname, local IP, detected Tailscale IP |
-| `GET /files/list?path=&hidden=&sortBy=&order=` | Directory listing |
-| `GET /files/search?path=&q=` | Recursive name search |
-| `POST /files/mkdir` | `{path, name}` |
-| `POST /files/create-file` | `{path, name}` |
-| `POST /files/rename` | `{path, newName}` |
-| `POST /files/delete` | `{paths: []}` |
-| `POST /files/copy` / `/files/move` | `{paths: [], destination}` |
-| `POST /files/duplicate` | `{path}` |
-| `GET/PUT /files/content` | Read/write a text file (editor) |
-| `GET /files/download` | Single-file download |
-| `GET /files/download-zip?paths=&name=` | Zip one or more paths on the fly |
-| `POST /files/extract` | `{path, destination}` — unzip |
-| `POST /files/upload?path=` | `multipart/form-data`, field `files` |
-| `GET /files/raw?path=` | Byte stream with HTTP Range support |
-| `GET /media/library` | Scanned media, grouped by type |
-| `GET /media/stream?dir=&path=` | Ranged media byte stream |
+Persistent data locations:
+- Linux: `~/.local/share/hostpanel/`
+- macOS: `~/Library/Application Support/HostPanel/`
+- Windows: `%LOCALAPPDATA%\HostPanel\`
 
-### WebSocket events
+Keep this directory private and back it up securely. If you delete `credentials.json` or `session.key`, you'll need to set up a new initial password and existing browser sessions will be invalidated.
 
-- `wss://host/ws/system` — server → client only, `{type:'stats', data:{...}}` every 2s.
-- `wss://host/ws/terminal` — bidirectional:
-  - client → server: `{type:'input', data}`, `{type:'resize', cols, rows}`
-  - server → client: `{type:'output', data}`, `{type:'exit', code}`, `{type:'error', message}`
+## Long-running background service
 
----
+HostPanel cannot run through power loss, sleep, OS shutdown, or a network outage, but its service installers keep it running in the background, restart it after process failures, and arrange automatic startup according to the platform's service manager.
 
-## 2. Setup — test on Windows
+### Linux (systemd user service)
 
-### One-run option
-Double-click **`start.bat`** (or run it from a terminal). On first run it
-installs dependencies, copies `.env.example` → `.env`, prompts you to create
-an admin account, and starts the server. Re-running it later just starts the
-server — it skips steps that are already done.
-
-### Manual, step-by-step (equivalent to what start.bat does)
-1. Install [Node.js 18+](https://nodejs.org) (LTS).
-2. Unzip the project, then in that folder:
-   ```powershell
-   npm install
-   ```
-   `node-pty` compiles a native module. If it fails on Windows, install the
-   **"Desktop development with C++"** workload from Visual Studio Build
-   Tools, then re-run `npm install`. (If you don't need the terminal feature
-   for local testing, everything else works fine even if `node-pty` fails —
-   the app degrades gracefully and shows an error only when you open the
-   Terminal tab; the server also prints a warning about this on startup.)
-3. Copy the environment template:
-   ```powershell
-   copy .env.example .env
-   ```
-   For local Windows testing, `FILE_ROOT` can point anywhere you like, e.g.
-   `FILE_ROOT=C:\Users\you\Desktop\dashboard-files`. Leave `COOKIE_SECURE=false`
-   — it must stay `false` unless you're actually serving over HTTPS, or every
-   login will silently fail to persist (see Troubleshooting below).
-4. Create your admin account:
-   ```powershell
-   npm run setup
-   ```
-5. Start it:
-   ```powershell
-   npm start
-   ```
-6. Open `http://localhost:8443` in your browser and sign in.
-
-On Windows the terminal tab opens `powershell.exe`; on Linux it opens `$SHELL`
-(bash by default).
-
----
-
-## 3. Deploy — on Linux (the real target)
-
-### One-run option
-```bash
-./start.sh
-```
-Same behavior as `start.bat` above: installs dependencies, creates `.env` on
-first run, prompts for an admin account if none exists, then starts the
-server. Safe to re-run any time.
-
-### Manual, step-by-step
-1. Copy the project to the server, e.g. `/opt/selfhost-dashboard`.
-2. Install Node 18+ (via your distro's package manager or [nvm](https://github.com/nvm-sh/nvm)).
-3. `npm install --omit=dev` (installing `node-pty` needs `make`, `g++`,
-   `python3` — on Debian/Ubuntu: `sudo apt install build-essential python3`).
-4. `cp .env.example .env` and edit:
-   - `HOST=0.0.0.0` so it's reachable from your Tailscale interface.
-   - `FILE_ROOT=/path/you/want/exposed` — pick deliberately; everything under
-     it is reachable to anyone who can log in.
-   - `JWT_SECRET=` — generate one: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
-   - Leave `COOKIE_SECURE=false` until you have real HTTPS in front of the
-     server (see step 6/Tailscale Serve below) — flipping it early is the
-     single most common cause of "login redirects back to login."
-5. `npm run setup` to create the admin account, then `npm start` to test it
-   manually — confirm `http://<tailscale-ip>:8443` loads from another device
-   on your tailnet. The server prints the exact URL it's listening on at startup.
-6. Run it persistently. Simplest option, `systemd`:
-   ```ini
-   # /etc/systemd/system/dashboard.service
-   [Unit]
-   Description=Self-Hosted Dashboard
-   After=network.target
-
-   [Service]
-   Type=simple
-   User=youruser
-   WorkingDirectory=/opt/selfhost-dashboard
-   ExecStart=/usr/bin/node server/index.js
-   Restart=on-failure
-   EnvironmentFile=/opt/selfhost-dashboard/.env
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-   ```bash
-   sudo systemctl enable --now dashboard
-   ```
-
----
-
-## 4. Access it over Tailscale
-
-- Install Tailscale on the server and on the device you'll use to connect,
-  and join both to the same tailnet.
-- Find the server's Tailscale IP with `tailscale ip -4` on the server (the
-  Dashboard's own header also detects and displays it automatically).
-- From any device on the tailnet: `http://<tailscale-ip>:8443`.
-- For a real domain + HTTPS instead of a bare IP:port, use
-  [Tailscale Serve or Funnel](https://tailscale.com/kb/1242/tailscale-serve)
-  (`tailscale serve https / http://localhost:8443`) — this also gets you a
-  trusted TLS cert for free on your tailnet's `*.ts.net` domain. Once you're
-  serving over HTTPS this way, set `COOKIE_SECURE=true` in `.env`.
-- If you'd rather use plain port forwarding instead of Tailscale, put this
-  behind a reverse proxy (nginx/Caddy) with TLS — don't expose port 8443
-  directly to the public internet without HTTPS in front of it, since the
-  login form submits credentials there.
-
----
-
-## 5. Troubleshooting
-
-**Login succeeds but immediately bounces back to the login page**, or the
-dashboard's cards/charts stay stuck on their loading skeleton, or the System
-Monitor updates for a bit and then stops: in every case this was a session
-cookie failing to persist, most commonly because `COOKIE_SECURE=true` is set
-in `.env` while the app is being accessed over plain `http://` (not real
-HTTPS). The browser silently discards a `Secure` cookie on a non-HTTPS
-connection, so the login *looks* successful (you get a 200 back) but nothing
-you do afterwards is actually authenticated. Fix: set `COOKIE_SECURE=false`
-unless this server is genuinely behind HTTPS (e.g. via Tailscale Serve). The
-server now also prints a warning at startup if this flag is on, and the login
-page itself will tell you plainly if the session didn't take instead of just
-silently redirecting you in a circle.
-
-**Port already in use on startup:** the server checks this before binding and
-tells you which port — change `PORT` in `.env` or stop whatever else is using it.
-
-**"Missing dependencies" on startup:** run `npm install` (or just use
-`start.sh` / `start.bat`, which do this automatically before every run).
-
----
-
-## 6. Tests
-
-Run the automated unit and security regression tests with:
+Run these from the extracted project directory as your normal user:
 
 ```bash
-npm test
+chmod +x install-service.sh enable-tailnet.sh uninstall-service.sh
+./install-service.sh
 ```
 
-GitHub Actions runs `npm ci` and `npm test` on Linux, macOS, and Windows. The tests use temporary directories and mocked inputs; they do not install packages, terminate real processes, or open a terminal session on the host.
+The installer creates `~/.config/systemd/user/hostpanel.service` with `Restart=always`. It attempts to enable systemd user lingering, which lets the user's service manager start at boot and continue after logout. This may prompt once for `sudo` to run `loginctl enable-linger <user>`. See `systemctl --user status hostpanel.service` and `journalctl --user -u hostpanel.service -f`.
 
-## 7. Notes & honest limitations
+Remove the service without deleting your password or data:
 
-- **MKV/HEVC playback** depends on the visiting browser's codec support, not
-  the server — Chrome/Edge play MKV containers with H.264 fine but not all
-  codecs inside them; there's no server-side transcoding built in yet.
-- **Subtitle support** is via `<track>` if you place a matching `.vtt` file
-  next to the video and reference it — there's no automatic subtitle
-  discovery/muxing yet.
-- **Quality selection** for video isn't implemented (no transcode pipeline);
-  the player streams the source file as-is with range support for seeking.
-- **2FA** has a reserved field but isn't wired into the login flow yet.
-- The process list's "End process" respects OS permissions — killing a
-  process owned by another user (or root, if you're not root) will correctly
-  fail with a permission error rather than silently doing nothing.
+```bash
+./uninstall-service.sh
+```
+
+### macOS (LaunchAgent)
+
+Run `./install-service.command`. HostPanel starts when your user logs in and launchd restarts it if it exits. A LaunchAgent runs in your logged-in user session. Remove it with `./uninstall-service.command`.
+
+### Windows (Task Scheduler)
+
+Run PowerShell as your normal user in the project directory:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\install-service.ps1
+```
+
+It creates a limited-privilege scheduled task at user logon and a supervisor loop that restarts HostPanel after exit. Remove it with `.\uninstall-service.ps1`. Windows interactive-user tasks run after that user signs in.
+
+## Secure access from anywhere (recommended)
+
+HostPanel binds to `127.0.0.1` by default, so it is not directly exposed to your LAN or the public internet. For access from your own devices while away from home, use **Tailscale Serve**:
+
+1. Install Tailscale on the HostPanel machine and on each phone/computer you will use.
+2. Sign in to the same private tailnet on each device.
+3. On Linux, run `./enable-tailnet.sh`; on macOS/Windows, run `tailscale serve --bg 8765` in a terminal.
+4. Open the HTTPS tailnet hostname shown by `tailscale serve status` from a connected device, then sign in using your HostPanel password.
+
+Tailscale Serve proxies the local HostPanel service over HTTPS to devices in your tailnet; it is not public access. Keep Tailscale Funnel disabled. If the host is offline, asleep, or disconnected from Tailscale, it cannot be reached. Tailscale Serve requires HTTPS certificates to be enabled for your tailnet and obeys your tailnet access-control rules. Official docs: https://tailscale.com/docs/features/tailscale-serve
+
+For a plain LAN-only setup, you can opt in to listening on all interfaces with `HOSTPANEL_BIND=0.0.0.0 ./start.sh`, then restrict the firewall to your trusted subnet. This uses HTTP; do not use it across untrusted networks. Do not port-forward 8765 directly to the internet.
+
+## Sessions and security
+
+The password persists until you change it. The browser can remember a signed-in session for 30 days (unchecked: 12 hours); password change invalidates prior sessions. Cookies are HttpOnly, SameSite=Strict and Secure when HTTPS is detected. Login attempts are rate-limited. WebSocket terminal/metrics access uses the signed session cookie and same-origin checks.
+
+The administrator password grants full HostPanel access, including terminal commands as the OS account running HostPanel and file operations allowed to that account. Run HostPanel as your regular account, never as root. `sudo` inside the terminal uses the operating system's own prompt; HostPanel does not capture or store sudo passwords.
+
+## File manager, terminal and media
+
+- Default browsing root is the current OS user's home folder.
+- Mounted data volumes are listed separately; Snap loop devices and kernel pseudo-filesystems are filtered.
+- Filesystem operations stay within the home folder and allowed mounted data volumes, subject to OS permissions.
+- Linux/macOS use a real PTY and interactive login shells. Zsh, Bash and Fish startup files load normally.
+- The browser terminal loads xterm.js and MesloLGS NF (Powerlevel10k-compatible glyph font) from jsDelivr. The content security policy explicitly permits that font CDN. Browsers need CDN access; if blocked, shell prompt icons may not display correctly. Only regular and bold font weights are preloaded to reduce bandwidth.
+- Audio/video streaming supports HTTP byte ranges. Image and FFmpeg video thumbnails are cached; install FFmpeg on the host for video thumbnails.
+
+## Notes
+
+No process can run for literally unlimited time: hardware power, sleep, OS updates, network connectivity and service-manager failures remain external dependencies. The service installers provide automatic restart and startup, not a guarantee against host downtime.
